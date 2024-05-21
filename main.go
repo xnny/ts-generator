@@ -196,7 +196,7 @@ import { ${type} } from "./DataDef";
 /**
 * 通用配置
 */
-export default class ConfigMgr extends Singleton<ConfigMgr> {
+export default class ConfigMgr extends Singleton {
 
 	private keyMap: Map<Function, string> = new Map();
 	private dataMap: Map<string, Record<string, any>> = new Map();
