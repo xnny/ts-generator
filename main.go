@@ -209,7 +209,7 @@ export default class ConfigMgr extends Singleton {
 		for (let i = 0; i < keys.length; i++)
 			this.keyMap.set(constructors[i], keys[i]);
 	}
-    static get Instance() {
+    static get Ins() {
         return super.GetInstance<ConfigMgr>();
     }
 
@@ -240,7 +240,7 @@ export default class ConfigMgr extends Singleton {
             this.loadState = 1;
             this.keyMap.forEach((key, value) => {
 
-                ResManager.Instance.loadRes(loadPath + key, null, (err, asset: JsonAsset) => {
+                ResManager.Ins.loadRes(loadPath + key, null, (err, asset: JsonAsset) => {
                     if (err) console.log(err);
                     else this.dataMap.set(key, asset.json);
 
