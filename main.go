@@ -192,37 +192,35 @@ import Singleton from "../Framework/GOF/Singleton/Singleton";
 import ResManager from "../Singletons/ResManager";
 import { ${type} } from "./DataDef";
 
-
 /**
-* 通用配置
-*/
+ * 通用配置
+ */
 export default class ConfigMgr extends Singleton {
+    private keyMap: Map<Function, string> = new Map();
+    private dataMap: Map<string, Record<string, any>> = new Map();
+    private dataListMap: Map<string, Record<string, any>[]> = new Map();
 
-	private keyMap: Map<Function, string> = new Map();
-	private dataMap: Map<string, Record<string, any>> = new Map();
+    constructor() {
+        super();
+        const keys = [${keys}];
+        const constructors = [${type}];
 
-	constructor() {
-		super();
-		const keys = [${keys}];
-		const constructors = [${type}];
-
-		for (let i = 0; i < keys.length; i++)
-			this.keyMap.set(constructors[i], keys[i]);
-	}
+        for (let i = 0; i < keys.length; i++) this.keyMap.set(constructors[i], keys[i]);
+    }
     static get Ins() {
         return super.GetInstance<ConfigMgr>();
     }
 
-	private loadState = 0;
+    private loadState = 0;
     private waitQueues: Array<() => void> = [];
 
     /**
-    * 获取所有数据
-	* @param option
-	*/
-    public loadAll(option?: { remoteUrl: string, remoteKeys?: Array<string> }): Promise<void> {
-
-        return new Promise(resolve => {
+     * 获取所有数据
+     * @param option
+     */
+    public loadAll(option?: { remoteUrl: string; remoteKeys?: Array<string> }): Promise<void> {
+        this.dataListMap.clear();
+        return new Promise((resolve) => {
             if (this.loadState == 2) {
                 resolve();
                 return;
@@ -239,68 +237,111 @@ export default class ConfigMgr extends Singleton {
             const loadPath = "config/";
             this.loadState = 1;
             this.keyMap.forEach((key, value) => {
+                ResManager.Ins.loadRes(
+                    loadPath + key,
+                    null,
+                    (err, asset: JsonAsset) => {
+                        if (err) console.log(err);
+                        else this.dataMap.set(key, asset.json);
 
-                ResManager.Ins.loadRes(loadPath + key, null, (err, asset: JsonAsset) => {
-                    if (err) console.log(err);
-                    else this.dataMap.set(key, asset.json);
+                        count--;
 
-                    count--;
-
-                    if (count <= 0) {
-                        this.loadState = 2;
-                        while (this.waitQueues.length > 0) {
-                            const call = this.waitQueues.shift();
-                            call();
+                        if (count <= 0) {
+                            this.loadState = 2;
+                            while (this.waitQueues.length > 0) {
+                                const call = this.waitQueues.shift();
+                                call();
+                            }
                         }
-                    }
-                }, this);
-
+                    },
+                    this
+                );
             });
         });
-
     }
 
-	/**
-	* 用于单个数据,通常用于系统数据，只有单条数据 
-	* @param type 类型
-	* @returns 
-	*/
-	public getOne<T>(type: new () => T): T {
-		const key = this.keyMap.get(type);
-		return this.dataMap.get(key) as T;
-	}
+    /**
+     * 用于单个数据,通常用于系统数据，只有单条数据
+     * @param type 类型
+     * @returns
+     */
+    public getOne<T>(type: new () => T): T {
+        const key = this.keyMap.get(type);
+        return this.dataMap.get(key) as T;
+    }
 
-	/**
-    * 获取单个
-    * @param keyVal key值
-    * @param type 类型
-    * @param key key
-    * @returns 
-    */
+    /**
+     * 获取单个
+     * @param keyVal key值
+     * @param type 类型
+     * @param key key
+     * @returns
+     */
     public getById<T>(keyVal: number | string, type: new () => T, key = "id"): T {
-        return this.find(type,p => p[key] == keyVal);
+        return this.find(type, (p) => p[key] == keyVal);
     }
 
-	/**
+    /**
      * 获取所有数据
      * @param type 类型
-     * @returns 
+     * @returns
      */
     public getAll<T>(type: new () => T): Array<T> {
+        const key = this.keyMap.get(type);
+        const data = this.dataMap.get(key);
+        if (data instanceof Array) {
+            return data as Array<T>;
+        } else {
+            if (!this.dataListMap.has(key)) {
+                const confs: Record<string, any>[] = new Array<Record<string, any>>();
+                const keys = Object.keys(data);
+                keys.forEach((key) => {
+                    confs.push(data[key]);
+                });
+                this.dataListMap.set(key, confs);
+            }
+            return this.dataListMap.get(key) as Array<T>;
+        }
+    }
+
+    /**
+     * 获取所有数据的List
+     * @param type 类型
+     * @returns
+     */
+    public getList<T>(type: new () => T): Array<T> {
         const key = this.keyMap.get(type);
         return this.dataMap.get(key) as Array<T>;
     }
 
+    /**
+     * 根据key获取数据
+     * @param type 类型
+     * @returns
+     */
+    public getByKey<T>(keyVal: string, type: new () => T): T {
+        const key = this.keyMap.get(type);
+        return this.dataMap.get(key)[keyVal] as T;
+    }
 
-	public find<T>(type: new () => T, predicate: (value: T, index: number, obj: T[]) => unknown): T {
+    public find<T>(
+        type: new () => T,
+        predicate: (value: T, index: number, obj: T[]) => unknown
+    ): T {
         return this.getAll(type)?.find(predicate);
     }
 
-    public filter<T>(type: new () => T, predicate: (value: T, index: number, array: T[]) => unknown): Array<T> {
+    public filter<T>(
+        type: new () => T,
+        predicate: (value: T, index: number, array: T[]) => unknown
+    ): Array<T> {
         return this.getAll(type)?.filter(predicate);
     }
 
-    public forEach<T>(type: new () => T, callbackfn: (value: T, index: number, array: T[]) => void): void {
+    public forEach<T>(
+        type: new () => T,
+        callbackfn: (value: T, index: number, array: T[]) => void
+    ): void {
         this.getAll(type)?.forEach(callbackfn);
     }
 }`
