@@ -198,7 +198,6 @@ import { ${type} } from "./DataDef";
 export default class ConfigMgr extends Singleton {
     private keyMap: Map<Function, string> = new Map();
     private dataMap: Map<string, Record<string, any>> = new Map();
-    private dataListMap: Map<string, Record<string, any>[]> = new Map();
 
     constructor() {
         super();
@@ -219,7 +218,6 @@ export default class ConfigMgr extends Singleton {
      * @param option
      */
     public loadAll(option?: { remoteUrl: string; remoteKeys?: Array<string> }): Promise<void> {
-        this.dataListMap.clear();
         return new Promise((resolve) => {
             if (this.loadState == 2) {
                 resolve();
@@ -271,78 +269,138 @@ export default class ConfigMgr extends Singleton {
     }
 
     /**
-     * 获取单个
-     * @param keyVal key值
-     * @param type 类型
-     * @param key key
-     * @returns
-     */
-    public getById<T>(keyVal: number | string, type: new () => T, key = "id"): T {
-        return this.find(type, (p) => p[key] == keyVal);
-    }
-
-    /**
-     * 获取所有数据
-     * @param type 类型
-     * @returns
-     */
-    public getAll<T>(type: new () => T): Array<T> {
-        const key = this.keyMap.get(type);
-        const data = this.dataMap.get(key);
-        if (data instanceof Array) {
-            return data as Array<T>;
-        } else {
-            if (!this.dataListMap.has(key)) {
-                const confs: Record<string, any>[] = new Array<Record<string, any>>();
-                const keys = Object.keys(data);
-                keys.forEach((key) => {
-                    confs.push(data[key]);
-                });
-                this.dataListMap.set(key, confs);
-            }
-            return this.dataListMap.get(key) as Array<T>;
-        }
-    }
-
-    /**
-     * 获取所有数据的List
+     * 获取所有数据 Array形式（不推荐对record配置使用，但也能用）
      * @param type 类型
      * @returns
      */
     public getList<T>(type: new () => T): Array<T> {
         const key = this.keyMap.get(type);
-        return this.dataMap.get(key) as Array<T>;
+        const data = this.dataMap.get(key);
+        if (data instanceof Array) {
+            return data as Array<T>;
+        } else {
+            console.warn("getList<T>: data is Object", key);
+            const confs: Record<string, any>[] = new Array<Record<string, any>>();
+            const keys = Object.keys(data);
+            keys.forEach((key) => {
+                confs.push(data[key]);
+            });
+            return confs as Array<T>;
+        }
+    }
+
+    /**
+     * 获取所有数据 Record形式
+     * @param type 类型
+     * @returns
+     */
+    public getRecord<T>(type: new () => T): Record<string, T> {
+        const key = this.keyMap.get(type);
+        const data = this.dataMap.get(key);
+        if (data instanceof Array) {
+            console.error("getRecord<T> fail: data is Array", key);
+            return;
+        }
+        return data as Record<string, T>;
+    }
+
+    /**
+     * 获取数据数量
+     * @param type 类型
+     * @returns
+     */
+    public getLength<T>(type: new () => T): number {
+        const key = this.keyMap.get(type);
+        const data = this.dataMap.get(key);
+        if (data instanceof Array) {
+            return (data as Array<T>).length;
+        } else {
+            return Object.keys(data).length;
+        }
     }
 
     /**
      * 根据key获取数据
+     * @param key object key
      * @param type 类型
      * @returns
      */
-    public getByKey<T>(keyVal: string, type: new () => T): T {
+    public getByKey<T>(key: string | number, type: new () => T): T | undefined {
+        if (typeof key === "number") {
+            key = key.toString();
+        }
+        const dataKey = this.keyMap.get(type);
+        const data = this.dataMap.get(dataKey);
+        if (data.hasOwnProperty(key)) {
+            return data[key] as T;
+        } else {
+            console.error("ConfigMgr.getByKey fail", dataKey, key);
+            return undefined;
+        }
+    }
+
+    /**
+     * 根据index获取数据
+     * @param index 配置数组索引
+     * @param type 类型
+     * @returns
+     */
+    public getByIndex<T>(index: number, type: new () => T): T | undefined {
+        const datas = this.getList(type);
+        if (index >= 0 && index < datas.length) {
+            return datas[index];
+        } else {
+            console.error("ConfigMgr.getByIndex fail", this.keyMap.get(type), index);
+            return undefined;
+        }
+    }
+
+    public find<T>(type: new () => T, predicate: (value: T) => unknown): T {
         const key = this.keyMap.get(type);
-        return this.dataMap.get(key)[keyVal] as T;
+        const data = this.dataMap.get(key);
+        if (data instanceof Array) {
+            return (data as Array<T>)?.find(predicate);
+        } else {
+            const record = data as Record<string, T>;
+            for (const key in record) {
+                if (record.hasOwnProperty(key) && predicate(record[key])) {
+                    return record[key];
+                }
+            }
+            return undefined;
+        }
     }
 
-    public find<T>(
-        type: new () => T,
-        predicate: (value: T, index: number, obj: T[]) => unknown
-    ): T {
-        return this.getAll(type)?.find(predicate);
+    public filter<T>(type: new () => T, predicate: (value: T) => unknown): Array<T> {
+        const key = this.keyMap.get(type);
+        const data = this.dataMap.get(key);
+        if (data instanceof Array) {
+            return (data as Array<T>)?.filter(predicate);
+        } else {
+            const record = data as Record<string, T>;
+            const result: T[] = [];
+            for (const key in record) {
+                if (record.hasOwnProperty(key) && predicate(record[key])) {
+                    result.push(record[key]);
+                }
+            }
+            return result;
+        }
     }
 
-    public filter<T>(
-        type: new () => T,
-        predicate: (value: T, index: number, array: T[]) => unknown
-    ): Array<T> {
-        return this.getAll(type)?.filter(predicate);
-    }
-
-    public forEach<T>(
-        type: new () => T,
-        callbackfn: (value: T, index: number, array: T[]) => void
-    ): void {
-        this.getAll(type)?.forEach(callbackfn);
+    public forEach<T>(type: new () => T, callbackfn: (value: T) => void): void {
+        const key = this.keyMap.get(type);
+        const data = this.dataMap.get(key);
+        if (data instanceof Array) {
+            (data as Array<T>)?.forEach(callbackfn);
+        } else {
+            const record = data as Record<string, T>;
+            for (const key in record) {
+                if (record.hasOwnProperty(key)) {
+                    callbackfn(record[key]);
+                }
+            }
+        }
     }
 }`
 
