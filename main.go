@@ -325,7 +325,11 @@ export default class ConfigMgr extends Singleton {
      * @param type 类型
      * @returns
      */
-    public getByKey<T>(key: string | number, type: new () => T): T | undefined {
+    public getByKey<T>(
+        key: string | number,
+        type: new () => T,
+        isLog: boolean = true
+    ): T | undefined {
         if (typeof key === "number") {
             key = key.toString();
         }
@@ -334,7 +338,9 @@ export default class ConfigMgr extends Singleton {
         if (data.hasOwnProperty(key)) {
             return data[key] as T;
         } else {
-            console.error("ConfigMgr.getByKey fail", dataKey, key);
+            if (isLog) {
+                console.error("ConfigMgr.getByKey fail", dataKey, key);
+            }
             return undefined;
         }
     }
@@ -363,7 +369,7 @@ export default class ConfigMgr extends Singleton {
         } else {
             const record = data as Record<string, T>;
             for (const key in record) {
-                if (record.hasOwnProperty(key) && predicate(record[key])) {
+                if (predicate(record[key])) {
                     return record[key];
                 }
             }
@@ -380,11 +386,46 @@ export default class ConfigMgr extends Singleton {
             const record = data as Record<string, T>;
             const result: T[] = [];
             for (const key in record) {
-                if (record.hasOwnProperty(key) && predicate(record[key])) {
+                if (predicate(record[key])) {
                     result.push(record[key]);
                 }
             }
             return result;
+        }
+    }
+
+    /** 数据大都是在一起的，从找到开始，到找不到结束，优化搜索性能 */
+    public filterQuick<T>(type: new () => T, predicate: (value: T) => unknown): Array<T> {
+        const key = this.keyMap.get(type);
+        const data = this.dataMap.get(key);
+        if (data instanceof Array) {
+            const datas: Array<T> = [];
+            const ary = data as Array<T>;
+            let isStart = false;
+            for (let i = 0; i < ary.length; i++) {
+                const conf = ary[i];
+                if (predicate(conf)) {
+                    isStart = true;
+                    datas.push(conf);
+                } else if (isStart) {
+                    break;
+                }
+            }
+            return datas;
+        } else {
+            const record = data as Record<string, T>;
+            const datas: Array<T> = [];
+            let isStart = false;
+            for (const key in record) {
+                const conf = record[key];
+                if (predicate(conf)) {
+                    isStart = true;
+                    datas.push(conf);
+                } else if (isStart) {
+                    break;
+                }
+            }
+            return datas;
         }
     }
 
@@ -396,9 +437,7 @@ export default class ConfigMgr extends Singleton {
         } else {
             const record = data as Record<string, T>;
             for (const key in record) {
-                if (record.hasOwnProperty(key)) {
-                    callbackfn(record[key]);
-                }
+                callbackfn(record[key]);
             }
         }
     }
