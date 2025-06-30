@@ -187,37 +187,42 @@ func writeConfigMgr(keys []string, types []string) {
 	typeStr := strings.Join(types, ",")
 
 	fileContent := `//自动生成
-import { JsonAsset } from "cc";
-import Singleton from "../Framework/GOF/Singleton/Singleton";
-import ResManager from "../Singletons/ResManager";
+import { Asset, assetManager, AssetManager, JsonAsset, log, resources } from "cc";
 import { ${type} } from "./DataDef";
 
 /**
  * 通用配置
  */
-export default class ConfigMgr extends Singleton {
+export default class ConfigMgr {
     private keyMap: Map<Function, string> = new Map();
     private dataMap: Map<string, Record<string, any>> = new Map();
+    private frames = {};
+    private loadState = 0;
+    private waitQueues: Array<() => void> = [];
 
-    constructor() {
-        super();
+    private static instance: ConfigMgr;
+
+    static get Ins() {
+        return this.GetInstance();
+    }
+    public static GetInstance(): ConfigMgr {
+        if (!ConfigMgr.instance) {
+            ConfigMgr.instance = new ConfigMgr();
+        }
+        return ConfigMgr.instance;
+    }
+    private constructor() {
         const keys = [${keys}];
         const constructors = [${type}];
 
         for (let i = 0; i < keys.length; i++) this.keyMap.set(constructors[i], keys[i]);
     }
-    static get Ins() {
-        return super.GetInstance<ConfigMgr>();
-    }
-
-    private loadState = 0;
-    private waitQueues: Array<() => void> = [];
 
     /**
      * 获取所有数据
      * @param option
      */
-    public loadAll(option?: { remoteUrl: string; remoteKeys?: Array<string> }): Promise<void> {
+    public LoadAll(option?: { remoteUrl: string; remoteKeys?: Array<string> }): Promise<void> {
         return new Promise((resolve) => {
             if (this.loadState == 2) {
                 resolve();
@@ -235,7 +240,7 @@ export default class ConfigMgr extends Singleton {
             const loadPath = "config/";
             this.loadState = 1;
             this.keyMap.forEach((key, value) => {
-                ResManager.Ins.loadRes(
+                this.LoadRes(
                     loadPath + key,
                     null,
                     (err, asset: JsonAsset) => {
@@ -257,13 +262,73 @@ export default class ConfigMgr extends Singleton {
             });
         });
     }
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    private LoadRes(
+        url: string,
+        bundleName?: string,
+        finishCall?: (err: Error, asset: any) => void,
+        caller?: any,
+        assetType?: typeof Asset
+    ) {
+        let callback = (err: Error, asset: any) => {
+            if (!err) {
+                if (assetType?.name == "cc_SpriteFrame") {
+                    if (asset.shift) {
+                        asset.forEach((element) => {
+                            // cc.log(element)
+                            this.frames[url + element.name] = element;
+                        });
+                    } else this.frames[url] = asset;
+                }
+            }
+            finishCall?.call(caller, err, asset);
+        };
 
+        if (bundleName) this.LoadResFromBundle(url, bundleName, callback, assetType);
+        else this.LoadResFromResources(url, callback, assetType);
+    }
+
+    private LoadResFromResources(
+        url: string,
+        onComplete: (err: Error, asset: any) => void,
+        assetType?: typeof Asset
+    ) {
+        if (this.IsDir(url)) resources.loadDir(url, assetType, onComplete);
+        else resources.load(url, assetType, onComplete);
+    }
+
+    private LoadResFromBundle(
+        url: string,
+        bundleName: string,
+        onComplete?: (err: Error, asset: any) => void,
+        assetType?: typeof Asset
+    ) {
+        let tmpBundle = assetManager.getBundle(bundleName);
+        if (tmpBundle) {
+            if (this.IsDir(url)) tmpBundle.loadDir(url, assetType, onComplete);
+            else tmpBundle.load(url, assetType, onComplete);
+        } else {
+            assetManager.loadBundle(bundleName, (err: Error, bundle: AssetManager.Bundle) => {
+                if (!err) {
+                    if (this.IsDir(url)) tmpBundle.loadDir(url, assetType, onComplete);
+                    else bundle.load(url, assetType, onComplete);
+                } else {
+                    log("loadBundle err", err);
+                }
+            });
+        }
+    }
+
+    private IsDir(url: string) {
+        return url[url.length - 1] == "/";
+    }
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * 用于单个数据,通常用于系统数据，只有单条数据
      * @param type 类型
      * @returns
      */
-    public getOne<T>(type: new () => T): T {
+    public GetOne<T>(type: new () => T): T {
         const key = this.keyMap.get(type);
         return this.dataMap.get(key) as T;
     }
@@ -273,7 +338,7 @@ export default class ConfigMgr extends Singleton {
      * @param type 类型
      * @returns
      */
-    public getList<T>(type: new () => T): Array<T> {
+    public GetList<T>(type: new () => T): Array<T> {
         const key = this.keyMap.get(type);
         const data = this.dataMap.get(key);
         if (data instanceof Array) {
@@ -294,7 +359,7 @@ export default class ConfigMgr extends Singleton {
      * @param type 类型
      * @returns
      */
-    public getRecord<T>(type: new () => T): Record<string, T> {
+    public GetRecord<T>(type: new () => T): Record<string, T> {
         const key = this.keyMap.get(type);
         const data = this.dataMap.get(key);
         if (data instanceof Array) {
@@ -309,7 +374,7 @@ export default class ConfigMgr extends Singleton {
      * @param type 类型
      * @returns
      */
-    public getLength<T>(type: new () => T): number {
+    public GetLength<T>(type: new () => T): number {
         const key = this.keyMap.get(type);
         const data = this.dataMap.get(key);
         if (data instanceof Array) {
@@ -325,7 +390,7 @@ export default class ConfigMgr extends Singleton {
      * @param type 类型
      * @returns
      */
-    public getByKey<T>(
+    public GetByKey<T>(
         key: string | number,
         type: new () => T,
         isLog: boolean = true
@@ -351,8 +416,8 @@ export default class ConfigMgr extends Singleton {
      * @param type 类型
      * @returns
      */
-    public getByIndex<T>(index: number, type: new () => T): T | undefined {
-        const datas = this.getList(type);
+    public GetByIndex<T>(index: number, type: new () => T): T | undefined {
+        const datas = this.GetList(type);
         if (index >= 0 && index < datas.length) {
             return datas[index];
         } else {
@@ -361,7 +426,7 @@ export default class ConfigMgr extends Singleton {
         }
     }
 
-    public find<T>(type: new () => T, predicate: (value: T) => unknown): T {
+    public Find<T>(type: new () => T, predicate: (value: T) => unknown): T {
         const key = this.keyMap.get(type);
         const data = this.dataMap.get(key);
         if (data instanceof Array) {
@@ -377,7 +442,7 @@ export default class ConfigMgr extends Singleton {
         }
     }
 
-    public filter<T>(type: new () => T, predicate: (value: T) => unknown): Array<T> {
+    public Filter<T>(type: new () => T, predicate: (value: T) => unknown): Array<T> {
         const key = this.keyMap.get(type);
         const data = this.dataMap.get(key);
         if (data instanceof Array) {
@@ -395,7 +460,7 @@ export default class ConfigMgr extends Singleton {
     }
 
     /** 数据大都是在一起的，从找到开始，到找不到结束，优化搜索性能 */
-    public filterQuick<T>(type: new () => T, predicate: (value: T) => unknown): Array<T> {
+    public FilterQuick<T>(type: new () => T, predicate: (value: T) => unknown): Array<T> {
         const key = this.keyMap.get(type);
         const data = this.dataMap.get(key);
         if (data instanceof Array) {
@@ -429,7 +494,7 @@ export default class ConfigMgr extends Singleton {
         }
     }
 
-    public forEach<T>(type: new () => T, callbackfn: (value: T) => void): void {
+    public ForEach<T>(type: new () => T, callbackfn: (value: T) => void): void {
         const key = this.keyMap.get(type);
         const data = this.dataMap.get(key);
         if (data instanceof Array) {
